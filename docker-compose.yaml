@@ -1,0 +1,107 @@
+version: '2'
+
+volumes:
+  
+  db_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  cache_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+  ldap_db_data:
+    driver: local
+  ldap_conf_data:
+    driver: local
+
+services:
+
+  apache:
+    restart: unless-stopped
+    build: 
+      context: ./.docker/php-apache
+      args:
+        - PUID=${DOCKER_PUID}
+        - PGID=${DOCKER_PGID}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./:/var/www/html/
+    depends_on:
+      - 'db'
+
+  db:
+    restart: unless-stopped
+    image: postgres
+    environment:
+      - POSTGRES_USER=${DB_USERNAME}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_DATABASE}
+    ports:
+      - '5432:5432'
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  pgadmin:
+    restart: unless-stopped
+    image: thajeztah/pgadmin4
+    ports:
+      - '5050:5050'
+    volumes:
+      - pgadmin_data:/pgadmin
+    depends_on:
+      - 'db'
+
+  cache:
+    restart: unless-stopped
+    image: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - cache_data:/data
+
+  ldap:
+    restart: unless-stopped
+    image: osixia/openldap
+    environment:
+      - LDAP_ORGANISATION=${LDAP_ORGANISATION}
+      - LDAP_DOMAIN=${LDAP_DOMAIN}
+      - LDAP_ADMIN_PASSWORD=${LDAP_ADMIN_PASSWORD}
+    ports:
+      - "389:389"
+      - "636:636"
+    volumes:
+      - ldap_db_data:/var/lib/ldap
+      - ldap_conf_data:/etc/ldap/slapd.d
+      - ./.docker/ldap/bootstrap.ldif:/container/service/slapd/assets/config/bootstrap/ldif/50-bootstrap.ldif
+    command: --copy-service
+
+  ldapadmin:
+    restart: unless-stopped
+    image: osixia/phpldapadmin
+    environment:
+      - PHPLDAPADMIN_LDAP_HOSTS=ldap
+      - PHPLDAPADMIN_HTTPS=false
+    ports:
+      - '8389:80'
+    depends_on:
+      - 'ldap'
+
+  elasticsearch:
+    restart: unless-stopped
+    image: docker.elastic.co/elasticsearch/elasticsearch-oss:6.2.2
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+      - "9300:9300"      
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
